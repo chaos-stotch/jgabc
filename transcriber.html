@@ -14,6 +14,12 @@
   <title>GABC Transcription Tool</title>
   <link rel="icon" href="icon/clear-main.png" type="image/png" />
   <link rel="chrome-webstore-item" href="https://chrome.google.com/webstore/detail/mkhgaijffgijgkolifpoaijimncdakkd" />
+  <link rel="manifest" href="manifest-pwa.json" />
+  <meta name="theme-color" content="#337ab7" />
+  <meta name="mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
+  <meta name="apple-mobile-web-app-title" content="GABC Tool" />
   <link rel="stylesheet" type="text/css" href="css/smoothness/jquery-ui-1.10.3.custom.min.css" />
   <link rel="stylesheet" type="text/css" href="css/bootstrap.min.css" />
   <link rel="stylesheet" type="text/css" href="style.css" />
@@ -39,6 +45,67 @@
   Hypher.languages.pl.rightMin = 1;
   Hypher.languages.it.leftMin = 1;
   Hypher.languages.it.rightMin = 1;
+  </script>
+  <script>
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker.register('./sw.js')
+          .then(registration => {
+            console.log('ServiceWorker registered:', registration);
+          })
+          .catch(error => {
+            console.log('ServiceWorker registration failed:', error);
+          });
+      });
+    }
+
+    // Install prompt handling
+    let deferredPrompt;
+    window.addEventListener('beforeinstallprompt', (e) => {
+      // Prevent Chrome 67 and earlier from automatically showing the prompt
+      e.preventDefault();
+      // Stash the event so it can be triggered later
+      deferredPrompt = e;
+      // Show the install button
+      showInstallButton();
+    });
+
+    function showInstallButton() {
+      const installBtn = document.getElementById('installBtn');
+      if (installBtn) {
+        installBtn.style.display = 'block';
+      }
+    }
+
+    window.installApp = function() {
+      if (deferredPrompt) {
+        // Show the install prompt
+        deferredPrompt.prompt();
+        // Wait for the user to respond to the prompt
+        deferredPrompt.userChoice.then((choiceResult) => {
+          if (choiceResult.outcome === 'accepted') {
+            console.log('User accepted the install prompt');
+          } else {
+            console.log('User dismissed the install prompt');
+          }
+          deferredPrompt = null;
+          const installBtn = document.getElementById('installBtn');
+          if (installBtn) {
+            installBtn.style.display = 'none';
+          }
+        });
+      }
+    };
+
+    // Listen for app installed event
+    window.addEventListener('appinstalled', () => {
+      console.log('PWA was installed');
+      const installBtn = document.getElementById('installBtn');
+      if (installBtn) {
+        installBtn.style.display = 'none';
+      }
+    });
   </script>
 </head>
 <body class='sans' style='overflow:hidden;padding: 8px'>
@@ -111,6 +178,7 @@ textarea{
     <li role="presentation"><a href="faq.html">(About)</a></li>
   </ul>
   <div style="float:right;margin-left:8px" class="btn-group hide-ss" role="group">
+    <button class='btn btn-xs btn-success' id='installBtn' onclick='installApp()' style='display:none;margin-right:4px' title='Baixe o site no seu celular'>📱 Instalar App</button>
     <a class='btn btn-xs btn-primary' href='#' id='lnkPdfDirect'>PDF</a>
     <a class='btn btn-xs btn-default' href='#' id='lnkPdf'>Further PDF options</a>
   </div>
