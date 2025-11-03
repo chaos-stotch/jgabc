@@ -1537,6 +1537,350 @@ if(typeof $=='function') $(function($) {
     'Te',
     'Ti'
   ]
+  
+  // Helper function to calculate note duration (similar to getNoteDuration in playScore)
+  function calculateNoteDuration(notes, noteId) {
+    var duration = 1;
+    var note = notes[noteId];
+    var nextNote = notes[noteId + 1];
+    if(nextNote && nextNote.constructor != exsurge.Note) nextNote = null;
+    
+    if(note.morae && note.morae.length > 0) {
+      duration = 2;
+    } else if(note.episemata && note.episemata.length > 0) {
+      duration = 2;
+    } else if(nextNote && nextNote.morae && nextNote.morae.length > 0 && note.neume === nextNote.neume) {
+      duration = 2;
+    }
+    
+    return duration;
+  }
+  
+  window.startSolfegeGame = function(score, defaultStartPitch, startPitch) {
+    // Get all playable notes from the score
+    var notes = [].concat.apply([], score.notations.map(function(notation) {
+      return (notation.notes || []).filter(function(note) {
+        return note && note.constructor === exsurge.Note && !note.isAccidental;
+      });
+    }));
+    
+    if(notes.length === 0) return;
+    
+    // Get the first note
+    var firstNote = notes[0];
+    
+    // Ask user for the solfege name of the first note
+    var firstNoteSolfege = prompt('Qual é o nome em solfejo da primeira nota?\n\n(Digite: Do, Di, Re, Me, Mi, Fa, Fi, Sol, Si, La, Te, ou Ti)', 'Do');
+    
+    if(!firstNoteSolfege) {
+      // User cancelled, don't start the game
+      return;
+    }
+    
+    // Normalize the input
+    firstNoteSolfege = firstNoteSolfege.trim();
+    var validSolfegeNames = solFegeNames.map(function(n) { return n.toLowerCase(); });
+    var firstNoteIndex = validSolfegeNames.indexOf(firstNoteSolfege.toLowerCase());
+    
+    if(firstNoteIndex === -1) {
+      alert('Nome inválido. Por favor, use: Do, Di, Re, Me, Mi, Fa, Fi, Sol, Si, La, Te, ou Ti');
+      return;
+    }
+    
+    // Calculate transpose from default start pitch
+    var transpose = defaultStartPitch.toInt() - startPitch;
+    
+    // Calculate the base offset: what semitone value corresponds to the first solfege name
+    // The first note's pitch (relative to startPitch + transpose) will be mapped to firstNoteIndex
+    var firstNotePitchInt = firstNote.pitch.toInt();
+    var firstNoteRelativePitch = firstNotePitchInt - startPitch + transpose;
+    var solfegeOffset = firstNoteIndex - ((firstNoteRelativePitch % 12) + 12) % 12;
+    
+    // Create full-screen modal
+    var $modal = $('<div>').addClass('solfege-game-modal').css({
+      position: 'fixed',
+      top: 0,
+      left: 0,
+      height: 'fill-available',
+      minHeight: '100vh',
+      width: '100vw',
+      backgroundColor: '#fff',
+      zIndex: 10000,
+      overflow: 'auto'
+    });
+    
+    // Close button (X)
+    var $closeBtn = $('<button>').addClass('solfege-close-btn').html('&times;').css({
+      position: 'absolute',
+      top: '10px',
+      right: '10px',
+      fontSize: '30px',
+      background: 'none',
+      border: 'none',
+      cursor: 'pointer',
+      zIndex: 10001,
+      color: '#333',
+      width: '40px',
+      height: '40px',
+      lineHeight: '40px'
+    }).click(function() {
+      $modal.remove();
+      if(window.gameNoteElem) {
+        window.gameNoteElem.classList.remove('active', 'porrectus-left', 'porrectus-right');
+        window.gameNoteElem = null;
+      }
+    });
+    
+    // Container for score
+    var $scoreContainer = $('<div>').addClass('solfege-score-container').css({
+      width: '95%',
+      maxWidth: '800px',
+      position: 'relative',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      marginTop: '60px',
+    });
+    
+    // Clone the original SVG - we need to find it in the DOM first
+    var $originalSvg = $(score.svg);
+    if($originalSvg.length === 0) {
+      // SVG might be a DOM element, not a jQuery object
+      $originalSvg = $(score.svg || document);
+    }
+    
+    // Create a deep clone
+    var clonedSvgElement = score.svg.cloneNode(true);
+    var $clonedSvg = $(clonedSvgElement);
+    
+    // Re-attach source references for cloned elements by finding notes by source-index
+    $clonedSvg.find('use[source-index],text[source-index]').each(function() {
+      var elem = this;
+      var sourceIndex = parseInt(elem.getAttribute('source-index'));
+      if(!isNaN(sourceIndex)) {
+        // Find the note with this sourceIndex
+        for(var i = 0; i < score.notations.length; i++) {
+          var notation = score.notations[i];
+          if(notation.notes) {
+            for(var j = 0; j < notation.notes.length; j++) {
+              if(notation.notes[j].sourceIndex === sourceIndex) {
+                elem.source = notation.notes[j];
+                elem.svgNode = elem; // Store reference
+                break;
+              }
+            }
+          }
+        }
+      }
+    });
+    
+    // Also update note.svgNode references to point to cloned elements
+    notes.forEach(function(note) {
+      if(note.svgNode) {
+        var sourceIndex = note.sourceIndex;
+        var clonedElem = $clonedSvg.find('[source-index="' + sourceIndex + '"]')[0];
+        if(clonedElem) {
+          note.gameSvgNode = clonedElem;
+        }
+      }
+    });
+    
+    $scoreContainer.append($clonedSvg);
+    
+    // Options container
+    var $optionsContainer = $('<div>').addClass('solfege-options-container').css({
+      width: '100%',
+      maxWidth: '800px',
+      textAlign: 'center',
+      position: 'absolute',
+      left: '50%',
+      transform: 'translateX(-50%)',
+      bottom: '0',
+      marginBottom: '20px',
+      backgroundColor: 'rgb(255, 255, 255)',
+    });
+    
+    var $optionsRow = $('<div>').addClass('solfege-options-row').css({
+      display: 'flex',
+      justifyContent: 'center',
+      flexWrap: 'wrap',
+      gap: '15px',
+      marginTop: '20px',
+    });
+    
+    $optionsContainer.append($('<h3>').text('Qual é o nome da nota atual?').css({marginBottom: '20px'}));
+    $optionsContainer.append($optionsRow);
+    
+    $modal.append($closeBtn);
+    $modal.append($scoreContainer);
+    $modal.append($optionsContainer);
+    $('body').append($modal);
+    
+    // Game state
+    var currentNoteIndex = 0;
+    var wrongAnswers = [];
+    
+    function getSolfegeName(note) {
+      var pitchInt = note.pitch.toInt();
+      var relativePitch = pitchInt - startPitch + transpose;
+      // Apply the offset based on the first note's solfege name
+      var solfegeIndex = (((relativePitch % 12) + solfegeOffset + 12) % 12);
+      return solFegeNames[solfegeIndex];
+    }
+    
+    function getRandomSolfegeNames(excludeName, count) {
+      var available = solFegeNames.filter(function(name) { return name !== excludeName; });
+      var shuffled = available.sort(function() { return 0.5 - Math.random(); });
+      return shuffled.slice(0, count);
+    }
+    
+    function highlightCurrentNote() {
+      // Remove highlight from previous note in cloned SVG
+      $clonedSvg.find('use.active, text.active').each(function() {
+        this.classList.remove('active', 'porrectus-left', 'porrectus-right');
+      });
+      
+      if(currentNoteIndex < notes.length) {
+        var note = notes[currentNoteIndex];
+        var noteElem = note.gameSvgNode || note.svgNode;
+        
+        // If we don't have a cloned element, find it by source-index
+        if(!note.gameSvgNode && note.sourceIndex !== undefined) {
+          noteElem = $clonedSvg.find('[source-index="' + note.sourceIndex + '"]')[0];
+          if(noteElem) note.gameSvgNode = noteElem;
+        }
+        
+        if(noteElem) {
+          var href = noteElem.getAttribute && noteElem.getAttribute('href');
+          if(href == '#None') {
+            var prev = noteElem.previousSibling;
+            if(prev) {
+              prev.classList.remove('porrectus-left');
+              prev.classList.add('active', 'porrectus-right');
+              window.gameNoteElem = prev;
+            }
+          } else if(href && /^#Porrectus/.test(href)) {
+            noteElem.classList.add('active', 'porrectus-left');
+            window.gameNoteElem = noteElem;
+          } else {
+            noteElem.classList.add('active');
+            window.gameNoteElem = noteElem;
+          }
+          
+          // Scroll to note
+          var $note = $(noteElem);
+          var offset = $note.offset();
+          if(offset && offset.top) {
+            var scrollTop = $modal.scrollTop();
+            var modalTop = $modal.offset().top;
+            var relativeTop = offset.top - modalTop + scrollTop;
+            $modal.scrollTop(Math.max(0, relativeTop - 200));
+          }
+        }
+      }
+    }
+    
+    function updateOptions() {
+      if(currentNoteIndex >= notes.length) {
+        $optionsContainer.find('h3').text('Parabéns! Você completou todas as notas!');
+        $optionsRow.empty();
+        return;
+      }
+      
+      var currentNote = notes[currentNoteIndex];
+      var correctName = getSolfegeName(currentNote);
+      var wrongNames = getRandomSolfegeNames(correctName, 3);
+      var allOptions = [correctName].concat(wrongNames);
+      
+      // Shuffle options
+      allOptions = allOptions.sort(function() { return 0.5 - Math.random(); });
+      
+      $optionsRow.empty();
+      wrongAnswers = [];
+      
+      allOptions.forEach(function(optionName) {
+        var isCorrect = optionName === correctName;
+        var $option = $('<button>').addClass('solfege-option').text(optionName).css({
+          padding: '15px 30px',
+          fontSize: '18px',
+          border: '2px solid #333',
+          borderRadius: '5px',
+          backgroundColor: '#fff',
+          cursor: 'pointer',
+          minWidth: '120px',
+          transition: 'all 0.3s'
+        });
+        
+        if(wrongAnswers.indexOf(optionName) >= 0) {
+          $option.css({
+            backgroundColor: '#d00',
+            color: '#fff',
+            cursor: 'not-allowed'
+          }).prop('disabled', true);
+        } else {
+          $option.click(function() {
+            if($(this).prop('disabled')) return;
+            
+            if(isCorrect) {
+              // Play the note
+              var noteId = notes.indexOf(currentNote);
+              var duration = calculateNoteDuration(notes, noteId);
+              var noteName = tones.getNoteName(currentNote.pitch, transpose);
+              // Play note using Tone.js (same synth setup as playScore)
+              try {
+                if(typeof Tone !== 'undefined' && Tone && Tone.Synth) {
+                  // Create a synth instance for the game (similar to the one in playScore)
+                  var gameSynth = new Tone.Synth({
+                    "oscillator" : {
+                      type: "custom",
+                      partials: [0.3,0.03,0.05]
+                    },
+                    "envelope" : {
+                      "attack" : 0.05,
+                      "decay" : 0.3,
+                      "sustain" : 0.4,
+                      "release" : 0.8
+                    }
+                  });
+                  // Use toMaster() for compatibility with existing Tone.js version
+                  if(gameSynth.toMaster) {
+                    gameSynth.toMaster();
+                  } else if(gameSynth.toDestination) {
+                    gameSynth.toDestination();
+                  }
+                  gameSynth.triggerAttackRelease(noteName, new Tone.Time("4n").toSeconds() * duration);
+                }
+              } catch(e) {
+                console.warn('Could not play note:', e);
+              }
+              
+              // Move to next note
+              currentNoteIndex++;
+              setTimeout(function() {
+                updateOptions();
+                highlightCurrentNote();
+              }, duration * 250); // Wait for note to finish
+            } else {
+              // Mark as wrong
+              wrongAnswers.push(optionName);
+              $option.css({
+                backgroundColor: '#d00',
+                color: '#fff',
+                cursor: 'not-allowed'
+              }).prop('disabled', true);
+            }
+          });
+        }
+        
+        $optionsRow.append($option);
+      });
+      
+      highlightCurrentNote();
+    }
+    
+    // Start the game
+    updateOptions();
+  };
+  
   window.addPitchButtonsToToolbar = function($toolbar, noteProperties, score, showToolbarForNoteArgs) {
     var isFirstPitch = !noteProperties;
     var lowPitch = 100000, highPitch = 0;
@@ -1595,6 +1939,18 @@ if(typeof $=='function') $(function($) {
       moveToNote(1);
     }));
     $toolbar.append(showToolbarForNoteArgs? playButtonGroup : playButton);
+    
+    // Add Solfejar button below play button (always show when toolbar is shown)
+    if(showToolbarForNoteArgs) {
+      var solfejarButton = $('<button>').addClass('btn btn-info').html('<span class="glyphicon glyphicon-music"></span> Solfejar').click(function(e) {
+        e.stopPropagation();
+        mouseUpTone();
+        removeChantContextMenus();
+        // Use startPitch calculated from first note
+        startSolfegeGame(score, score.defaultStartPitch, startPitch);
+      });
+      $toolbar.append(solfejarButton);
+    }
     if(isFirstPitch) {
       $toolbar.append($('<button>').addClass('btn btn-default active disabled').html('<div>Range: <span class="lowest-solfege"></span> to <span class="highest-solfege"></span> (' + getPitchRange(highPitch - lowPitch) + ')</div>'));
       $toolbar.find('.lowest-solfege').html(solFegeNames[lowPitch % 12].slice(0,2) + '<sub>' + Math.floor(lowPitch / 12) + '</sub>');
