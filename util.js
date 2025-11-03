@@ -1609,6 +1609,29 @@ if(typeof $=='function') $(function($) {
       overflow: 'auto'
     });
     
+    // Create synth instance once for the entire game (reuse for all notes)
+    var gameSynth = null;
+    if(typeof Tone !== 'undefined' && Tone && Tone.Synth) {
+      gameSynth = new Tone.Synth({
+        "oscillator" : {
+          type: "custom",
+          partials: [0.3,0.03,0.05]
+        },
+        "envelope" : {
+          "attack" : 0.05,
+          "decay" : 0.3,
+          "sustain" : 0.4,
+          "release" : 0.8
+        }
+      });
+      // Use toMaster() for compatibility with existing Tone.js version
+      if(gameSynth.toMaster) {
+        gameSynth.toMaster();
+      } else if(gameSynth.toDestination) {
+        gameSynth.toDestination();
+      }
+    }
+    
     // Close button (X)
     var $closeBtn = $('<button>').addClass('solfege-close-btn').html('&times;').css({
       position: 'absolute',
@@ -1624,6 +1647,15 @@ if(typeof $=='function') $(function($) {
       height: '40px',
       lineHeight: '40px'
     }).click(function() {
+      // Clean up synth when closing modal
+      if(gameSynth) {
+        try {
+          gameSynth.dispose();
+        } catch(e) {
+          // Ignore errors during cleanup
+        }
+        gameSynth = null;
+      }
       $modal.remove();
       if(window.gameNoteElem) {
         window.gameNoteElem.classList.remove('active', 'porrectus-left', 'porrectus-right');
@@ -1856,28 +1888,9 @@ if(typeof $=='function') $(function($) {
               var noteId = notes.indexOf(currentNote);
               var duration = calculateNoteDuration(notes, noteId);
               var noteName = tones.getNoteName(currentNote.pitch, transpose);
-              // Play note using Tone.js (same synth setup as playScore)
+              // Play note using the reusable synth instance
               try {
-                if(typeof Tone !== 'undefined' && Tone && Tone.Synth) {
-                  // Create a synth instance for the game (similar to the one in playScore)
-                  var gameSynth = new Tone.Synth({
-                    "oscillator" : {
-                      type: "custom",
-                      partials: [0.3,0.03,0.05]
-                    },
-                    "envelope" : {
-                      "attack" : 0.05,
-                      "decay" : 0.3,
-                      "sustain" : 0.4,
-                      "release" : 0.8
-                    }
-                  });
-                  // Use toMaster() for compatibility with existing Tone.js version
-                  if(gameSynth.toMaster) {
-                    gameSynth.toMaster();
-                  } else if(gameSynth.toDestination) {
-                    gameSynth.toDestination();
-                  }
+                if(gameSynth) {
                   gameSynth.triggerAttackRelease(noteName, new Tone.Time("4n").toSeconds() * duration);
                 }
               } catch(e) {
