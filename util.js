@@ -1686,6 +1686,37 @@ if(typeof $=='function') $(function($) {
     
     $scoreContainer.append($clonedSvg);
     
+    // Make notes appear clickable
+    $clonedSvg.find('use[source-index],text[source-index]:not(.dropCap)').css('cursor', 'pointer');
+    
+    // Add click handlers to notes in the cloned SVG
+    $clonedSvg.on('click', 'use[source-index],text[source-index]:not(.dropCap)', function(e) {
+      e.stopPropagation();
+      var elem = this;
+      var sourceIndex = parseInt(elem.getAttribute('source-index'));
+      
+      if(isNaN(sourceIndex)) return;
+      
+      // Find the note with this sourceIndex in the notes array
+      var clickedNoteIndex = -1;
+      for(var i = 0; i < notes.length; i++) {
+        if(notes[i].sourceIndex === sourceIndex) {
+          clickedNoteIndex = i;
+          break;
+        }
+      }
+      
+      if(clickedNoteIndex >= 0) {
+        // Update current note index
+        currentNoteIndex = clickedNoteIndex;
+        // Reset wrong answers for new note
+        wrongAnswers = [];
+        // Update UI
+        updateOptions();
+        highlightCurrentNote();
+      }
+    });
+    
     // Options container
     var $optionsContainer = $('<div>').addClass('solfege-options-container').css({
       width: '100%',
